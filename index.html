@@ -1,0 +1,470 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="带进入界面的个人主页，支持长按 / 回车进入">
+  <title>Personal Homepage</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; color: #f4ede2; }
+    .homepage { width: 100%; height: 100%; border: 0; display: block; }
+
+    /* ========== 进入界面 ========== */
+    #enterScreen {
+      position: fixed; inset: 0; z-index: 100;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 34px; padding: 24px; text-align: center;
+      overflow: hidden;
+      transition: opacity .9s ease, visibility .9s ease;
+    }
+    #enterScreen.done { opacity: 0; visibility: hidden; pointer-events: none; }
+    .enter-bg {
+      position: absolute; inset: -8%;
+      background-image: url("images/enter-bg.jpg");
+      background-size: cover; background-position: center;
+      filter: blur(24px) saturate(1.1) brightness(.86);
+      transform: scale(1.12);
+    }
+    .enter-veil {
+      position: absolute; inset: 0;
+      background:
+        radial-gradient(ellipse at 50% 42%, rgba(10,14,20,.28) 0%, rgba(6,10,14,.55) 60%, rgba(3,6,9,.78) 100%);
+    }
+    .enter-inner { position: relative; z-index: 2; display: flex; flex-direction: column; align-items: center; gap: 30px; max-width: 640px; }
+    #rippleCanvas {
+      position: absolute; inset: 0; z-index: 1;
+      pointer-events: none; touch-action: none;
+    }
+    .enter-title { margin: 0; font: 500 clamp(44px, 8vw, 84px) Georgia, "Times New Roman", "Noto Serif SC", serif; letter-spacing: .04em; color: #fff7e8; text-shadow: 0 4px 30px rgba(0,0,0,.45); }
+    .enter-sub { margin: 0; color: rgba(255, 247, 232, .78); font-size: 15px; letter-spacing: .18em; text-transform: uppercase; }
+
+    .enter-controls { display: flex; flex-direction: column; align-items: center; gap: 22px; width: min(460px, 88vw); }
+    .hold-wrap { position: relative; width: 132px; height: 132px; }
+    .hold-ring { position: absolute; inset: 0; }
+    .hold-ring circle { fill: none; stroke-width: 3; }
+    .hold-ring .track { stroke: rgba(255,247,232,.22); }
+    .hold-ring .fill { stroke: #f7d794; stroke-linecap: round; transform: rotate(-90deg); transform-origin: center; transition: stroke-dashoffset .08s linear; }
+    .hold-btn {
+      position: absolute; inset: 16px;
+      display: grid; place-items: center;
+      border: 1px solid rgba(255, 247, 232, .5); border-radius: 50%;
+      background: rgba(15, 20, 26, .4); color: #f7d794;
+      font-size: 15px; letter-spacing: .12em; cursor: pointer;
+      backdrop-filter: blur(10px);
+      user-select: none; -webkit-user-select: none; touch-action: none;
+      transition: background .3s, color .3s, box-shadow .3s;
+    }
+    .hold-btn.pressed { background: rgba(247, 215, 148, .16); box-shadow: 0 0 42px rgba(247, 215, 148, .35) inset, 0 0 26px rgba(247, 215, 148, .25); }
+    .hold-btn:focus-visible { outline: 2px solid #f7d794; outline-offset: 4px; }
+    .hold-btn.charging .hold-ring .track { stroke: rgba(255,247,232,.38); }
+    .hold-btn.charging .hold-ring .fill { stroke-width: 7; filter: drop-shadow(0 0 6px rgba(247,215,148,.95)) drop-shadow(0 0 18px rgba(247,215,148,.55)); transition: stroke-width .15s ease, stroke-dashoffset .08s linear; }
+    .hold-btn.charging { color: #f7d794; text-shadow: 0 0 12px rgba(247,215,148,.8); }
+
+
+    /* ========== 反馈按钮（进入后显示） ========== */
+    .feedback-trigger {
+      position: fixed; z-index: 20; right: 28px; bottom: 28px;
+      min-height: 48px; padding: 0 20px; border: 1px solid rgba(255,255,255,.7); border-radius: 999px;
+      color: #fff; background: #18312d; box-shadow: 0 14px 34px rgba(24,49,45,.25); cursor: pointer; font: inherit;
+      opacity: 0; visibility: hidden; transition: opacity .8s ease .3s, visibility .8s ease .3s;
+    }
+    body.entered .feedback-trigger { opacity: 1; visibility: visible; }
+    .feedback-trigger:hover { transform: translateY(-2px); }
+
+    /* ========== 反馈弹窗（沿用原逻辑） ========== */
+    .modal { position: fixed; z-index: 30; inset: 0; display: none; place-items: center; padding: 20px; background: rgba(18,39,34,.4); backdrop-filter: blur(12px); }
+    .modal.open { display: grid; }
+    .card { width: min(560px, 100%); max-height: 92vh; overflow: auto; padding: 28px; border: 1px solid rgba(255,255,255,.7); border-radius: 28px; background: #f6faf8; box-shadow: 0 30px 90px rgba(13,34,29,.28); color: #18312d; }
+    .head { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 10px; }
+    h1 { margin: 0; font: 500 34px Georgia, "Times New Roman", "Noto Serif SC", serif; }
+    .close { width: 40px; height: 40px; border: 1px solid var(--line, rgba(31,66,58,.15)); border-radius: 50%; background: #fff; cursor: pointer; font-size: 24px; color: #18312d; }
+    .intro { margin: 0 0 22px; color: #58716a; line-height: 1.7; }
+    .identity { display: flex; gap: 10px; margin-bottom: 16px; }
+    .identity label { flex: 1; padding: 12px 14px; border: 1px solid rgba(31,66,58,.15); border-radius: 14px; background: #fff; cursor: pointer; }
+    input[type="radio"] { accent-color: #2f7060; }
+    .field { display: grid; gap: 7px; margin-top: 14px; }
+    .field label { color: #58716a; font-size: 13px; }
+    input[type="text"], textarea { width: 100%; padding: 12px 14px; border: 1px solid rgba(31,66,58,.15); border-radius: 14px; color: #18312d; background: #fff; outline: none; font: inherit; }
+    input:focus, textarea:focus { border-color: #2f7060; box-shadow: 0 0 0 3px rgba(47,112,96,.1); }
+    textarea { min-height: 145px; resize: vertical; }
+    .meta { display: flex; justify-content: space-between; color: #58716a; font-size: 12px; }
+    .status { min-height: 21px; margin: 14px 0 0; font-size: 13px; color: #58716a; }
+    .status.success { color: #237052; } .status.error { color: #a13d35; }
+    .actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+    .button { min-height: 44px; padding: 0 18px; border-radius: 999px; border: 1px solid rgba(31,66,58,.15); background: #fff; cursor: pointer; font: inherit; color: #18312d; }
+    .button.primary { border: 0; color: #fff; background: #18312d; }
+    .button:disabled { opacity: .55; cursor: wait; }
+    .honeypot { position: absolute!important; left: -9999px!important; opacity: 0!important; }
+    .setup-note { display: none; margin-top: 12px; padding: 11px 13px; border-radius: 12px; background: #fff2d9; color: #79561b; font-size: 12px; line-height: 1.5; }
+    .setup-note.visible { display: block; }
+
+    /* 返回按钮：进入主页后左上角显示，点击返回进入界面 */
+    .back-button {
+      position: fixed; left: 16px; top: 16px; z-index: 110;
+      display: flex; align-items: center; gap: 7px;
+      padding: 8px 15px 8px 11px; border-radius: 999px;
+      border: 1px solid rgba(31,66,58,.18); background: rgba(255,255,255,.85);
+      color: #18312d; font: 500 13px/1 inherit; cursor: pointer;
+      backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+      opacity: 0; visibility: hidden; transform: translateY(-6px);
+      transition: opacity .4s ease, transform .4s ease, visibility .4s;
+      box-shadow: 0 4px 14px rgba(20,45,40,.14);
+    }
+    body.entered .back-button { opacity: 1; visibility: visible; transform: none; }
+    .back-button:hover { background: #fff; }
+    .back-button svg { width: 13px; height: 13px; stroke: #18312d; stroke-width: 2.2; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+
+    @media (max-width: 640px) {
+      .feedback-trigger { right: 16px; bottom: 18px; }
+      .back-button { left: 12px; top: 12px; padding: 7px 13px 7px 10px; font-size: 12px; }
+      .card { padding: 22px; }
+      .identity { flex-direction: column; }
+      .enter-title { font-size: 46px; }
+      .enter-controls { width: 92vw; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- 进入界面 -->
+  <div id="enterScreen" aria-label="进入界面">
+    <div class="enter-bg" aria-hidden="true"></div>
+    <div class="enter-veil" aria-hidden="true"></div>
+    <canvas id="rippleCanvas" aria-hidden="true"></canvas>
+    <div class="enter-inner">
+      <p class="enter-sub">Personal Homepage</p>
+      <h1 class="enter-title">欢迎来到我的主页</h1>
+      <div class="enter-controls">
+        <div class="hold-wrap">
+          <svg class="hold-ring" viewBox="0 0 132 132" aria-hidden="true">
+            <circle class="track" cx="66" cy="66" r="62"></circle>
+            <circle class="fill" id="holdFill" cx="66" cy="66" r="62" stroke-dasharray="389.6" stroke-dashoffset="389.6"></circle>
+          </svg>
+          <button class="hold-btn" id="holdBtn" type="button">点击</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <iframe class="homepage" src="personal-homepage.html" title="个人主页"></iframe>
+  <button class="back-button" id="backButton" type="button" aria-label="返回进入界面">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="15 18 9 12 15 6"></polyline></svg>
+    返回
+  </button>
+  <button class="feedback-trigger" id="feedbackButton" type="button">留下反馈</button>
+
+  <div class="modal" id="feedbackModal" role="dialog" aria-modal="true" aria-labelledby="feedbackTitle">
+    <form class="card" id="feedbackForm">
+      <div class="head"><h1 id="feedbackTitle">给我一点反馈</h1><button class="close" id="closeFeedback" type="button" aria-label="关闭">×</button></div>
+      <p class="intro">指出一个看不懂、不好找或不方便的位置。反馈不会公开，只有我能看到。</p>
+      <div class="identity" role="radiogroup" aria-label="提交身份">
+        <label><input type="radio" name="identity" value="anonymous" checked> 匿名</label>
+        <label><input type="radio" name="identity" value="named"> 实名</label>
+      </div>
+      <div class="field" id="nameField" hidden><label for="visitorName">你的称呼</label><input id="visitorName" type="text" maxlength="80" autocomplete="name"></div>
+      <div class="field"><label for="message">你的意见</label><textarea id="message" maxlength="2000" required placeholder="例如：我在经历页找不到项目详情入口……"></textarea><div class="meta"><span>请勿填写密码等敏感信息</span><span><span id="count">0</span> / 2000</span></div></div>
+      <div class="field honeypot" aria-hidden="true"><label for="website">Website</label><input id="website" type="text" tabindex="-1" autocomplete="off"></div>
+      <div class="setup-note" id="setupNote">反馈后台尚未连接，请先配置 Supabase 项目地址与公开匿名密钥。</div>
+      <p class="status" id="status" role="status" aria-live="polite"></p>
+      <div class="actions"><button class="button" id="cancelFeedback" type="button">取消</button><button class="button primary" id="submitFeedback" type="submit">提交反馈</button></div>
+    </form>
+  </div>
+
+  <script>
+    /* ========== 鼠标波纹 + 拖尾（与个人主页一致：模糊波纹 + 柔雾光点拖尾） ========== */
+    (() => {
+      const canvas = document.getElementById('rippleCanvas');
+      const ctx = canvas.getContext('2d');
+      const screen = document.getElementById('enterScreen');
+      let ripples = [], particles = [];
+      let running = false, rafId = null, lastTs = 0;
+      let lastPoint = null, distAcc = 0, rippleAcc = 0;
+      const MAX_R = 110, DURATION = 1600;      // 波纹半径 / 生命周期
+      const TRAIL_STEP = 14, RIPPLE_DIST = 70; // 拖尾粒子间距 / 波纹间距（移动中按距离生成）
+      const MAX_P = 220;
+
+      function resize() {
+        const dpr = Math.min(2, window.devicePixelRatio || 1);
+        canvas.width = Math.floor(screen.clientWidth * dpr);
+        canvas.height = Math.floor(screen.clientHeight * dpr);
+        canvas.style.width = screen.clientWidth + 'px';
+        canvas.style.height = screen.clientHeight + 'px';
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      }
+      window.addEventListener('resize', resize);
+
+      function spawn(x, y, strength) {
+        ripples.push({ x, y, born: performance.now(), strength });
+        if (ripples.length > 48) ripples.shift();
+      }
+      function spawnParticle(x, y, dx, dy) {
+        const sp = Math.min(1, Math.hypot(dx, dy) / 34);
+        particles.push({ x, y, vx: dx * .07, vy: dy * .07, age: 0, life: 700 + Math.random() * 420, size: 2 + sp * 2.6 });
+        if (particles.length > MAX_P) particles.shift();
+      }
+
+      // 模糊波纹：无硬边光圈，仅柔光扩散（与主页一致）
+      function drawRipple(rp, now) {
+        const t = (now - rp.born) / DURATION;
+        if (t >= 1) return false;
+        const r = Math.max(1, MAX_R * (1 - Math.pow(1 - t, 3)));
+        const a = rp.strength * Math.pow(1 - t, 2.2);
+        if (a <= .012) return false;
+        const g = ctx.createRadialGradient(rp.x, rp.y, 0, rp.x, rp.y, r);
+        g.addColorStop(0, `rgba(255,255,255,${(a * .26).toFixed(3)})`);
+        g.addColorStop(.5, `rgba(255,255,255,${(a * .1).toFixed(3)})`);
+        g.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.arc(rp.x, rp.y, r, 0, 6.2832); ctx.fill();
+        const fg = ctx.createRadialGradient(rp.x, rp.y, r * .3, rp.x, rp.y, r);
+        fg.addColorStop(0, 'rgba(47,112,96,0)');
+        fg.addColorStop(1, `rgba(47,112,96,${(a * .07).toFixed(3)})`);
+        ctx.fillStyle = fg;
+        ctx.beginPath(); ctx.arc(rp.x, rp.y, r, 0, 6.2832); ctx.fill();
+        return true;
+      }
+
+      function frame(ts) {
+        const dt = Math.min(120, ts - (lastTs || ts));
+        lastTs = ts;
+        ctx.clearRect(0, 0, screen.clientWidth, screen.clientHeight);
+        ripples = ripples.filter(rp => drawRipple(rp, ts));
+        for (let i = particles.length - 1; i >= 0; i--) {
+          const p = particles[i];
+          p.age += dt; p.x += p.vx; p.y += p.vy;
+          p.vx *= .94; p.vy *= .94;
+          if (p.age >= p.life) { particles.splice(i, 1); continue; }
+          const k = 1 - p.age / p.life;
+          const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.size * 3.2);
+          g.addColorStop(0, `rgba(247,215,148,${(k * .13).toFixed(3)})`);
+          g.addColorStop(.7, `rgba(247,215,148,${(k * .08).toFixed(3)})`);
+          g.addColorStop(1, 'rgba(247,215,148,0)');
+          ctx.fillStyle = g;
+          ctx.beginPath(); ctx.arc(p.x, p.y, p.size * 3.2, 0, 6.2832); ctx.fill();
+        }
+        rafId = requestAnimationFrame(frame);
+      }
+
+      function onMove(x, y) {
+        if (!running || screen.classList.contains('done')) return;
+        if (lastPoint) {
+          const dx = x - lastPoint.x, dy = y - lastPoint.y;
+          const d = Math.hypot(dx, dy);
+          distAcc += d;
+          if (distAcc >= TRAIL_STEP) {
+            const n = Math.floor(distAcc / TRAIL_STEP);
+            for (let i = 0; i < n; i++) {
+              const f = n === 1 ? 1 : i / (n - 1);
+              spawnParticle(lastPoint.x + dx * f, lastPoint.y + dy * f, dx, dy);
+            }
+            distAcc %= TRAIL_STEP;
+          }
+          rippleAcc += d;                                 // 移动中激起波纹，静止时不自动生成
+          if (rippleAcc >= RIPPLE_DIST) { spawn(x, y, .85); rippleAcc = 0; }
+        } else {
+          rippleAcc = 0; distAcc = 0;
+        }
+        lastPoint = { x, y };
+      }
+      window.addEventListener('pointermove', e => onMove(e.clientX, e.clientY), { passive: true });
+      window.addEventListener('pointerdown', e => onMove(e.clientX, e.clientY), { passive: true });
+
+      function startRipples() {
+        if (running) return;
+        const reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        if (reduced) return;                       // 尊重减少动态偏好
+        running = true;
+        lastPoint = null;                          // 鼠标未动前不自动生成
+        resize();
+        rafId = requestAnimationFrame(frame);
+      }
+      function stopRipples() {
+        running = false;
+        ripples = [];
+        particles = [];
+        if (rafId) cancelAnimationFrame(rafId);
+        ctx.clearRect(0, 0, screen.clientWidth, screen.clientHeight);
+      }
+
+      // 初始启动波纹；进入首页时由自定义事件停止，返回进入界面时重新启动
+      startRipples();
+      window.addEventListener('ripples-start', startRipples);
+      window.addEventListener('ripples-stop', stopRipples);
+    })();
+
+    /* ========== 背景视差：虚化夜景随鼠标缓慢拖动，模拟 3D 场景跟随 ========== */
+    (() => {
+      const bg = document.querySelector('.enter-bg');
+      const screen = document.getElementById('enterScreen');
+      let tx = 0, ty = 0, cx = 0, cy = 0;   // 目标 / 当前偏移
+      let rafId = null, lastTs = 0, running = true;
+      const DEPTH = 34;                     // 最大位移（px）
+
+      function frame(ts) {
+        const dt = Math.min(120, ts - (lastTs || ts));
+        lastTs = ts;
+        const k = 1 - Math.exp(-4.5 * dt / 1000);          // 帧率无关指数阻尼，缓慢跟随
+        cx += (tx - cx) * k;
+        cy += (ty - cy) * k;
+        bg.style.transform = `scale(1.12) translate3d(${cx.toFixed(2)}px, ${cy.toFixed(2)}px, 0)`;
+        rafId = requestAnimationFrame(frame);
+      }
+      window.addEventListener('pointermove', e => {
+        if (!running || screen.classList.contains('done')) return;
+        tx = (e.clientX / window.innerWidth - .5) * 2 * DEPTH;
+        ty = (e.clientY / window.innerHeight - .5) * 2 * DEPTH * .62;
+      }, { passive: true });
+
+      window.addEventListener('ripples-stop', () => { running = false; if (rafId) cancelAnimationFrame(rafId); });
+      window.addEventListener('ripples-start', () => {
+        if (running) return;
+        running = true; lastTs = 0;
+        rafId = requestAnimationFrame(frame);
+      });
+      rafId = requestAnimationFrame(frame);
+    })();
+
+    /* ========== 进入 / 退出界面逻辑：长按 / 回车进入，按钮或 Esc 退出 ========== */
+    (() => {
+      const screen = document.getElementById('enterScreen');
+      const holdBtn = document.getElementById('holdBtn');
+      const holdFill = document.getElementById('holdFill');
+      const backBtn = document.getElementById('backButton');
+      const FULL = 389.6;            // 圆环周长
+      const HOLD_MS = 1600;          // 长按时长
+      let holdTimer = null;
+      let entered = false;
+
+      function enter() {
+        if (entered) return;
+        entered = true;
+        clearTimeout(holdTimer);
+        screen.classList.add('done');
+        document.body.classList.add('entered');
+        window.dispatchEvent(new Event('ripples-stop'));   // 进入后停止波纹
+        try { sessionStorage.removeItem('homepage-entered'); } catch (_) {}
+      }
+
+      function exit() {
+        if (!entered) return;
+        entered = false;
+        screen.classList.remove('done');
+        document.body.classList.remove('entered');
+        setFill(0);
+        window.dispatchEvent(new Event('ripples-start'));   // 返回进入界面，恢复波纹
+      }
+
+      function setFill(progress) {  // progress: 0..1
+        holdFill.style.strokeDashoffset = String(FULL * (1 - progress));
+      }
+
+      // 1) 鼠标长按
+      function startHold() {
+        if (entered) return;
+        holdBtn.textContent = '加载中';
+        holdBtn.classList.add('charging');
+        holdBtn.classList.add('pressed');
+        const start = performance.now();
+        const tick = (now) => {
+          if (holdBtn.dataset.holding !== '1') return;
+          const p = Math.min(1, (now - start) / HOLD_MS);
+          setFill(p);
+          if (p >= 1) { enter(); return; }
+          holdTimer = setTimeout(() => tick(performance.now()), 32);
+        };
+        holdBtn.dataset.holding = '1';
+        holdTimer = setTimeout(() => tick(performance.now()), 32);
+      }
+      function cancelHold() {
+        if (entered) return;
+        clearTimeout(holdTimer);
+        holdBtn.dataset.holding = '0';
+        holdBtn.textContent = '点击';
+        holdBtn.classList.remove('charging');
+        holdBtn.classList.remove('pressed');
+        setFill(0);
+      }
+      holdBtn.addEventListener('pointerdown', startHold);
+      holdBtn.addEventListener('pointerup', cancelHold);
+      holdBtn.addEventListener('pointerleave', cancelHold);
+      holdBtn.addEventListener('pointercancel', cancelHold);
+
+      // 2) 回车键进入；Esc 退出返回进入界面
+      window.addEventListener('keydown', event => {
+        if (event.key === 'Escape' && entered) {
+          const modalOpen = document.getElementById('feedbackModal').classList.contains('open');
+          if (modalOpen) return;              // 反馈弹窗开着时，Esc 交给弹窗关闭
+          event.preventDefault();
+          exit();
+          return;
+        }
+        if (entered || event.key !== 'Enter') return;
+        event.preventDefault();
+        setFill(1);
+        enter();
+      });
+
+
+      // 4) 左上角返回按钮：退出主页回到进入界面
+      backBtn.addEventListener('click', exit);
+    })();
+
+    /* ========== 反馈弹窗逻辑 ========== */
+    (() => {
+      const SUPABASE_URL = 'YOUR_SUPABASE_URL';
+      const SUPABASE_ANON_KEY = 'YOUR_SUPABASE_ANON_KEY';
+      const modal = document.getElementById('feedbackModal');
+      const form = document.getElementById('feedbackForm');
+      const nameField = document.getElementById('nameField');
+      const visitorName = document.getElementById('visitorName');
+      const message = document.getElementById('message');
+      const status = document.getElementById('status');
+      const submit = document.getElementById('submitFeedback');
+      const configured = SUPABASE_URL.startsWith('https://') && !SUPABASE_URL.includes('YOUR_') && !SUPABASE_ANON_KEY.includes('YOUR_');
+
+      function openFeedback() { modal.classList.add('open'); status.textContent=''; document.getElementById('setupNote').classList.toggle('visible', !configured); setTimeout(() => message.focus(), 50); }
+      function closeFeedback() { modal.classList.remove('open'); }
+      document.getElementById('feedbackButton').addEventListener('click', openFeedback);
+      document.getElementById('closeFeedback').addEventListener('click', closeFeedback);
+      document.getElementById('cancelFeedback').addEventListener('click', closeFeedback);
+      modal.addEventListener('click', event => { if (event.target === modal) closeFeedback(); });
+      document.addEventListener('keydown', event => { if (event.key === 'Escape') closeFeedback(); });
+      document.querySelectorAll('input[name="identity"]').forEach(input => input.addEventListener('change', () => {
+        const named = input.value === 'named' && input.checked;
+        nameField.hidden = !named; visitorName.required = named; if (!named) visitorName.value = '';
+      }));
+      message.addEventListener('input', () => document.getElementById('count').textContent = message.value.length);
+
+      form.addEventListener('submit', async event => {
+        event.preventDefault();
+        if (document.getElementById('website').value) return;
+        if (!configured) { status.className='status error'; status.textContent='后台尚未配置，暂时无法提交。'; return; }
+        const identity = form.elements.identity.value;
+        const payload = {
+          is_anonymous: identity === 'anonymous',
+          visitor_name: identity === 'named' ? visitorName.value.trim() : null,
+          message: message.value.trim(),
+          page_url: location.href.slice(0, 1000),
+          user_agent: navigator.userAgent.slice(0, 500)
+        };
+        if (!payload.message) return;
+        submit.disabled = true; status.className='status'; status.textContent='正在提交……';
+        try {
+          const response = await fetch(`${SUPABASE_URL}/rest/v1/feedback`, {
+            method:'POST',
+            headers:{ 'apikey':SUPABASE_ANON_KEY, 'Authorization':`Bearer ${SUPABASE_ANON_KEY}`, 'Content-Type':'application/json', 'Prefer':'return=minimal' },
+            body:JSON.stringify(payload)
+          });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          form.reset(); nameField.hidden=true; visitorName.required=false; document.getElementById('count').textContent='0';
+          status.className='status success'; status.textContent='谢谢，反馈已安全送达。';
+          setTimeout(closeFeedback, 1600);
+        } catch (error) {
+          console.error(error); status.className='status error'; status.textContent='提交失败，请稍后再试。';
+        } finally { submit.disabled=false; }
+      });
+    })();
+  </script>
+</body>
+</html>
