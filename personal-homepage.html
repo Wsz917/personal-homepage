@@ -578,7 +578,7 @@
         <div class="field full"><label for="majorInput" data-i18n="majorLabel">专业</label><textarea id="majorInput" name="major" placeholder="例如：计算机科学与技术"></textarea></div>
         <div class="field full"><label data-i18n="expLabel">经历栏目</label><div id="expItemsEdit"></div><button class="soft-button small" id="addExpItem" type="button" data-i18n="addExpItem">＋ 添加栏目</button><p class="exp-hint" data-i18n="expImgHint">图片会自动压缩保存（无需联网）</p></div>
       </div>
-      <div class="modal-actions"><button class="soft-button" id="resetProfile" type="button" data-i18n="reset">清空资料</button><button class="primary-button" type="submit" data-i18n="save">保存资料</button></div>
+      <div class="modal-actions"><button class="soft-button" id="resetProfile" type="button" data-i18n="reset">清空资料</button><button class="soft-button" id="exportProfile" type="button" data-i18n="exportData">导出数据（上传云端）</button><button class="primary-button" type="submit" data-i18n="save">保存资料</button></div>
     </form>
   </div>
 
@@ -596,6 +596,46 @@
   <script>
     (() => {
       const PROFILE_KEY = 'personal-homepage-enhanced-v2';
+      const EDIT_PIN = '917919'; // 编辑密码：修改此数字即可更换（6位）
+      const CLOUD_URL = 'https://raw.githubusercontent.com/Wsz917/personal-homepage/main/profile.json'; // 云端数据源（你的 GitHub 仓库）
+      let pinVerified = false;
+      function verifyPin() {
+        if (pinVerified) return true;
+        const input = window.prompt('请输入编辑密码：');
+        if (input === null) return false;
+        if (String(input).trim() === EDIT_PIN) { pinVerified = true; return true; }
+        window.alert('密码错误，无法进入编辑模式');
+        return false;
+      }
+      function hasLocalData(p) {
+        return [p.name, p.bio, p.travel, p.sport, p.major].some(v => (v || '').trim()) ||
+          (Array.isArray(p.expItems) && p.expItems.length > 0);
+      }
+      async function loadCloudProfile() {
+        if (hasLocalData(profile)) return; // 本地母体数据优先，云端只补首次访问
+        try {
+          const res = await fetch(CLOUD_URL + '?t=' + Date.now());
+          if (!res.ok) return;
+          const cloud = await res.json();
+          if (!cloud || typeof cloud !== 'object') return;
+          if (Array.isArray(cloud.expItems)) cloud.expItems = cloud.expItems.map(it => ({ cat: '', ...it }));
+          if (!cloud.travelImgs || typeof cloud.travelImgs !== 'object') cloud.travelImgs = { tl: '', tr: '', bl: '', br: '' };
+          profile = { ...defaults, ...cloud };
+          renderProfile(); fillScreens();
+        } catch (e) { /* 网络异常时保持默认预置内容 */ }
+      }
+      function exportProfile() {
+        try {
+          const blob = new Blob([JSON.stringify(profile, null, 2)], { type: 'application/json' });
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(blob);
+          a.download = 'profile.json';
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+        } catch { alert(language === 'zh' ? '导出失败，请重试。' : 'Export failed. Please try again.'); }
+      }
       const LANGUAGE_KEY = 'personal-homepage-language';
       const FONTS = [
         { label: '衬线体（默认）', value: 'Georgia, "Noto Serif SC", serif' },
@@ -609,14 +649,21 @@
         { label: 'Impact 粗衬线', value: 'Impact, "Arial Black", sans-serif' }
       ];
       const defaults = {
-        name: '', bio: '',
+        name: '',
+        bio: '我是智能医学工程专业大一学生，在北京长大，高中毕业后南下深圳求学。关注脑机接口与神经信号处理，喜欢把工程思维用在生活里——旅行、运动和音乐都是我的充电方式。',
         fontName: 'Georgia, "Noto Serif SC", serif',
         fontBio: 'Georgia, "Noto Serif SC", serif',
         fontNameSize: 96,
         fontBioSize: 28,
-        travel: '', sport: '', major: '',
+        travel: '去过的地方不多但都记得很清楚：香港的维港夜景、上海外滩与武康路、杭州西湖的烟雨、广州的早茶、长沙的夜宵、张家界的奇峰。旅行的意义对我不只是打卡，更是把课本之外的坐标系装进脑子。',
+        sport: '羽毛球从初中打到现在，是坚持最久的运动；游泳是打小就会的本能，夏天泡在泳池里最解压；平时也喜欢慢跑，沿着深圳湾吹着海风跑五公里。',
+        major: '智能医学工程 · 大一。方向兴趣集中在脑机接口（BCI）与神经信号处理：如何把大脑意图解码成机器指令，如何让瘫痪者重新移动，如何用闭环刺激缓解神经疾病。目前正在打数学、信号与电路基础，目标是本科阶段完成一个自己的 BCI 小原型。',
         travelImgs: { tl: '', tr: '', bl: '', br: '' },
-        expItems: [],
+        expItems: [
+          { cat: '教育', title: '深圳未来技术学院 · 大一', text: '天津大学·HKUST 深圳未来技术学院（智能医学工程）在读。正在修数学、物理与程序设计基础，为脑机接口方向打底。' },
+          { cat: '旅行', title: '我的旅行足迹', text: '香港、上海、杭州、广州、长沙、张家界。西湖的烟雨和张家界的山脊印象最深。' },
+          { cat: '运动', title: '羽毛球 · 游泳 · 慢跑', text: '羽毛球从初中打到现在；游泳从小就学；每周沿深圳湾慢跑。运动是学习之外的必修课。' }
+        ],
         phone: '', email: ''
       };
       const copy = {
@@ -630,7 +677,7 @@
           expLabel: '经历栏目', addExpItem: '＋ 添加栏目', expTitlePh: '栏目标题（可选）', expTextPh: '栏目内容',
           expPickImg: '选择图片', expRemoveImg: '移除图片', expDelItem: '删除栏目', expImgHint: '图片会自动压缩保存（无需联网）',
           chipInterest: '兴趣', chipMajor: '专业', chipExperience: '经历',
-          reset: '清空资料', save: '保存资料', emptyHint: '资料为空，点击右上角 ✎ 开始填写。', emptySection: '（暂无内容，点击右上角 ✎ 填写）',
+          reset: '清空资料', save: '保存资料', exportData: '导出数据（上传云端）', emptyHint: '资料为空，点击右上角 ✎ 开始填写。', emptySection: '（暂无内容，点击右上角 ✎ 填写）',
           contact: '联系', contactTitle: '联系我', phoneLabel: '手机号', emailLabel: '邮箱地址', bookmarkHome: '首页'
         },
         en: {
@@ -643,7 +690,7 @@
           expLabel: 'Experience entries', addExpItem: '+ Add entry', expTitlePh: 'Entry title (optional)', expTextPh: 'Entry content',
           expPickImg: 'Choose image', expRemoveImg: 'Remove image', expDelItem: 'Delete entry', expImgHint: 'Images are compressed and stored locally',
           chipInterest: 'Interests', chipMajor: 'Major', chipExperience: 'Experience',
-          reset: 'Clear all', save: 'Save profile', emptyHint: 'Your profile is empty. Click ✎ in the top-right to start filling it in.', emptySection: '(Nothing here yet — click ✎ to add.)',
+          reset: 'Clear all', save: 'Save profile', exportData: 'Export data (for cloud)', emptyHint: 'Your profile is empty. Click ✎ in the top-right to start filling it in.', emptySection: '(Nothing here yet — click ✎ to add.)',
           contact: 'Contact', contactTitle: 'Contact me', phoneLabel: 'Phone', emailLabel: 'Email', bookmarkHome: 'Home'
         }
       };
@@ -842,6 +889,7 @@
         }, 1600);
       }
       function openEditor() {
+        if (!verifyPin()) return;
         ['name','bio','fontName','fontBio','travel','sport','major'].forEach(key => {
           const input = document.getElementById(`${key}Input`); if (input) input.value = profile[key] || '';
         });
@@ -993,6 +1041,7 @@
       document.getElementById('resetProfile').addEventListener('click', () => {
         profile = { ...defaults }; localStorage.removeItem(PROFILE_KEY); renderProfile(); fillScreens(); renderExpItemsEdit(); closeEditor();
       });
+      document.getElementById('exportProfile').addEventListener('click', exportProfile);
       ['fontName', 'fontBio'].forEach(k => {
         const sel = document.getElementById(`${k}Input`);
         FONTS.forEach(f => {
@@ -1016,6 +1065,7 @@
       });
       screens[0].classList.add('active');           // 首屏直接呈现
       renderProfile(); renderLanguage(); fillScreens();
+      loadCloudProfile(); // 访问者（无本地数据）自动读取云端发布内容
     })();
 
     /* ========== 专业页：脑机接口神经脉冲画布（连线 + 滚动脑波 + 数据脉冲） ========== */
