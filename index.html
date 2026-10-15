@@ -85,8 +85,8 @@
     input[type="radio"] { accent-color: #2f7060; }
     .field { display: grid; gap: 7px; margin-top: 14px; }
     .field label { color: #58716a; font-size: 13px; }
-    input[type="text"], textarea { width: 100%; padding: 12px 14px; border: 1px solid rgba(31,66,58,.15); border-radius: 14px; color: #18312d; background: #fff; outline: none; font: inherit; }
-    input:focus, textarea:focus { border-color: #2f7060; box-shadow: 0 0 0 3px rgba(47,112,96,.1); }
+    input[type="text"], textarea, select { width: 100%; padding: 12px 14px; border: 1px solid rgba(31,66,58,.15); border-radius: 14px; color: #18312d; background: #fff; outline: none; font: inherit; }
+    input:focus, textarea:focus, select:focus { border-color: #2f7060; box-shadow: 0 0 0 3px rgba(47,112,96,.1); }
     textarea { min-height: 145px; resize: vertical; }
     .meta { display: flex; justify-content: space-between; color: #58716a; font-size: 12px; }
     .status { min-height: 21px; margin: 14px 0 0; font-size: 13px; color: #58716a; }
@@ -158,11 +158,9 @@
     <form class="card" id="feedbackForm">
       <div class="head"><h1 id="feedbackTitle">给我一点反馈</h1><button class="close" id="closeFeedback" type="button" aria-label="关闭">×</button></div>
       <p class="intro">指出一个看不懂、不好找或不方便的位置。反馈不会公开，只有我能看到。</p>
-      <div class="identity" role="radiogroup" aria-label="提交身份">
-        <label><input type="radio" name="identity" value="anonymous" checked> 匿名</label>
-        <label><input type="radio" name="identity" value="named"> 实名</label>
-      </div>
-      <div class="field" id="nameField" hidden><label for="visitorName">你的称呼</label><input id="visitorName" type="text" maxlength="80" autocomplete="name"></div>
+      <div class="field"><label for="visitorName">名字或昵称（可选）</label><input id="visitorName" type="text" maxlength="80" autocomplete="name" placeholder="例如：小张"></div>
+      <div class="field"><label for="relation">与主页主人的关系</label><select id="relation"><option value="">请选择</option><option>同学</option><option>老师</option><option>家人</option><option>朋友</option><option>同事</option><option>其他</option><option>不便透露</option></select></div>
+      <div class="field"><label for="device">正在使用的设备</label><select id="device" required><option value="">请选择</option><option>电脑</option><option>手机</option><option>平板</option><option>其他</option></select></div>
       <div class="field"><label for="message">你的意见</label><textarea id="message" maxlength="2000" required placeholder="例如：我在经历页找不到项目详情入口……"></textarea><div class="meta"><span>请勿填写密码等敏感信息</span><span><span id="count">0</span> / 2000</span></div></div>
       <div class="field honeypot" aria-hidden="true"><label for="website">Website</label><input id="website" type="text" tabindex="-1" autocomplete="off"></div>
       <div class="setup-note" id="setupNote">反馈后台尚未连接，请先配置 Supabase 项目地址与公开匿名密钥。</div>
@@ -416,7 +414,6 @@
       const SUPABASE_ANON_KEY = 'YOUR_SUPABASE_ANON_KEY';
       const modal = document.getElementById('feedbackModal');
       const form = document.getElementById('feedbackForm');
-      const nameField = document.getElementById('nameField');
       const visitorName = document.getElementById('visitorName');
       const message = document.getElementById('message');
       const status = document.getElementById('status');
@@ -430,25 +427,20 @@
       document.getElementById('cancelFeedback').addEventListener('click', closeFeedback);
       modal.addEventListener('click', event => { if (event.target === modal) closeFeedback(); });
       document.addEventListener('keydown', event => { if (event.key === 'Escape') closeFeedback(); });
-      document.querySelectorAll('input[name="identity"]').forEach(input => input.addEventListener('change', () => {
-        const named = input.value === 'named' && input.checked;
-        nameField.hidden = !named; visitorName.required = named; if (!named) visitorName.value = '';
-      }));
       message.addEventListener('input', () => document.getElementById('count').textContent = message.value.length);
 
       form.addEventListener('submit', async event => {
         event.preventDefault();
         if (document.getElementById('website').value) return;
         if (!configured) { status.className='status error'; status.textContent='后台尚未配置，暂时无法提交。'; return; }
-        const identity = form.elements.identity.value;
         const payload = {
-          is_anonymous: identity === 'anonymous',
-          visitor_name: identity === 'named' ? visitorName.value.trim() : null,
+          name: visitorName.value.trim() || null,
+          relation: document.getElementById('relation').value.trim() || null,
+          device: document.getElementById('device').value.trim() || null,
           message: message.value.trim(),
-          page_url: location.href.slice(0, 1000),
-          user_agent: navigator.userAgent.slice(0, 500)
+          version: 'V3'
         };
-        if (!payload.message) return;
+        if (!payload.message || !payload.device) return;
         submit.disabled = true; status.className='status'; status.textContent='正在提交……';
         try {
           const response = await fetch(`${SUPABASE_URL}/rest/v1/feedback`, {
@@ -457,7 +449,7 @@
             body:JSON.stringify(payload)
           });
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
-          form.reset(); nameField.hidden=true; visitorName.required=false; document.getElementById('count').textContent='0';
+          form.reset(); document.getElementById('count').textContent='0';
           status.className='status success'; status.textContent='谢谢，反馈已安全送达。';
           setTimeout(closeFeedback, 1600);
         } catch (error) {
